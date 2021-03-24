@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import styled from "@emotion/styled";
-import { ReactComponent as CloudyIcon } from "./images/day-cloudy.svg";
+import WeatherIcon from "./WeatherIcon.js";
 import { ReactComponent as AirFlowIcon } from "./images/airFlow.svg";
 import { ReactComponent as RainIcon } from "./images/rain.svg";
 import { ReactComponent as RedoIcon } from "./images/refresh.svg";
@@ -53,10 +53,6 @@ const Celsius = styled.div`
   font-size: 42px;
 `;
 
-const Cloudy = styled(CloudyIcon)`
-  flex-basis: 30%;
-`;
-
 const AirFlow = styled.div`
   display: flex;
   align-items: center;
@@ -103,9 +99,62 @@ const Redo = styled.div`
   }
 `;
 
-const WeatherApp = () => {
-  console.log("invoke function component");
+const fetchCurrentWeather = () => {
+  return fetch(
+    "https://opendata.cwb.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=CWB-507B37E0-0383-4D8C-878D-628B54EC3536&locationName=臺北"
+  )
+    .then((response) => response.json())
+    .then((data) => {
+      const locationData = data.records.location[0];
 
+      const weatherElements = locationData.weatherElement.reduce(
+        (neededElements, item) => {
+          if (["WDSD", "TEMP", "HUMD"].includes(item.elementName)) {
+            neededElements[item.elementName] = item.elementValue;
+          }
+          return neededElements;
+        },
+        {}
+      );
+
+      return {
+        observationTime: locationData.time.obsTime,
+        locationName: locationData.locationName,
+        temperature: weatherElements.TEMP,
+        windSpeed: weatherElements.WDSD,
+        humid: weatherElements.HUMD
+      };
+    });
+};
+
+const fetchWeatherForecast = () => {
+  return fetch(
+    "https://opendata.cwb.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=CWB-507B37E0-0383-4D8C-878D-628B54EC3536&locationName=臺北市"
+  )
+    .then((response) => response.json())
+    .then((data) => {
+      const locationData = data.records.location[0];
+      const weatherElements = locationData.weatherElement.reduce(
+        (neededElements, item) => {
+          if (["Wx", "PoP", "CI"].includes(item.elementName)) {
+            neededElements[item.elementName] = item.time[0].parameter;
+          }
+          return neededElements;
+        },
+        {}
+      );
+
+      return {
+        description: weatherElements.Wx.parameterName,
+        weatherCode: weatherElements.Wx.parameterValue,
+        rainPossibility: weatherElements.PoP.parameterName,
+        comfortability: weatherElements.CI.parameterName
+      };
+    });
+};
+
+const WeatherApp = () => {
+  console.log("--- invoke function component ---");
   const [weatherElement, setWeatherElement] = useState({
     observationTime: new Date(),
     locationName: "",
@@ -118,83 +167,44 @@ const WeatherApp = () => {
     comfortability: ""
   });
 
-  useEffect(() => {
-    console.log("execute function in useEffect");
-    fetchCurrentWeather();
-    fetchWeatherForecast();
+  const fetchData = useCallback(() => {
+    const fetchingData = async () => {
+      const [currentWeather, weatherForecast] = await Promise.all([
+        fetchCurrentWeather(),
+        fetchWeatherForecast()
+      ]);
+
+      setWeatherElement({
+        ...currentWeather,
+        ...weatherForecast
+      });
+    };
+
+    fetchingData();
   }, []);
 
-  const fetchCurrentWeather = () => {
-    fetch(
-      "https://opendata.cwb.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=CWB-768895B2-D6FF-49EA-93ED-3199A647CCCC&locationName=臺北"
-    )
-      .then((response) => response.json())
-      .then((data) => {
-        // STEP 1：定義 `locationData` 把回傳的資料中會用到的部分取出來
-        const locationData = data.records.location[0];
+  useEffect(() => {
+    console.log("execute function in useEffect");
 
-        // STEP 2：將風速（WDSD）、氣溫（TEMP）和濕度（HUMD）的資料取出
-        const weatherElements = locationData.weatherElement.reduce(
-          (neededElements, item) => {
-            if (["WDSD", "TEMP", "HUMD"].includes(item.elementName)) {
-              neededElements[item.elementName] = item.elementValue;
-            }
-            return neededElements;
-          },
-          {}
-        );
-
-        // STEP 3：要使用到 React 組件中的資料
-        setWeatherElement((prevState) => ({
-          ...prevState,
-          observationTime: locationData.time.obsTime,
-          locationName: locationData.locationName,
-          description: "多雲時晴",
-          temperature: weatherElements.TEMP,
-          windSpeed: weatherElements.WDSD,
-          humid: weatherElements.HUMD
-        }));
-      });
-  };
-
-  const fetchWeatherForecast = () => {
-    fetch(
-      "https://opendata.cwb.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=CWB-768895B2-D6FF-49EA-93ED-3199A647CCCC&locationName=臺北市"
-    )
-      .then((response) => response.json())
-      .then((data) => {
-        const locationData = data.records.location[0];
-        const weatherElements = locationData.weatherElement.reduce(
-          (neededElements, item) => {
-            if (["Wx", "PoP", "CI"].includes(item.elementName)) {
-              neededElements[item.elementName] = item.time[0].parameter;
-            }
-            return neededElements;
-          },
-          {}
-        );
-
-        setWeatherElement((prevState) => ({
-          ...prevState,
-          description: weatherElements.Wx.parameterName,
-          weatherCode: weatherElements.Wx.parameterValue,
-          rainPossibility: weatherElements.PoP.parameterName,
-          comfortability: weatherElements.CI.parameterName
-        }));
-      });
-  };
+    fetchData();
+  }, [fetchData]);
 
   return (
     <Container>
       {console.log("render")}
       <WeatherCard>
         <Location>{weatherElement.locationName}</Location>
-        <Description>{weatherElement.comfortability}</Description>
+        <Description>
+          {weatherElement.description} {weatherElement.comfortability}
+        </Description>
         <CurrentWeather>
           <Temperature>
             {Math.round(weatherElement.temperature)} <Celsius>°C</Celsius>
           </Temperature>
-          <Cloudy />
+          <WeatherIcon
+            currentWeatherCode={weatherElement.weatherCode}
+            moment="night"
+          />
         </CurrentWeather>
         <AirFlow>
           <AirFlowIcon />
@@ -204,13 +214,7 @@ const WeatherApp = () => {
           <RainIcon />
           {Math.round(weatherElement.rainPossibility)} %
         </Rain>
-
-        <Redo
-          onClick={() => {
-            fetchCurrentWeather();
-            fetchWeatherForecast();
-          }}
-        >
+        <Redo onClick={fetchData}>
           最後觀測時間：
           {new Intl.DateTimeFormat("zh-TW", {
             hour: "numeric",
